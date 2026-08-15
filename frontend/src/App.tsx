@@ -52,6 +52,7 @@ export default function App() {
   const [complianceEdits, setComplianceEdits] = useState<{ [key: string]: string }>({});
 
   const recognitionRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -64,7 +65,13 @@ export default function App() {
       rec.interimResults = false;
       rec.lang = 'en-US';
       
-      rec.onstart = () => setIsRecording(true);
+      rec.onstart = () => {
+        setIsRecording(true);
+        // Stop any currently playing audio so it doesn't feed back into the mic
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+      };
       rec.onend = () => setIsRecording(false);
       rec.onresult = (event: any) => {
         const text = event.results[0][0].transcript;
@@ -103,6 +110,8 @@ export default function App() {
                     final_answer: detail.reviewer_response || 'Approved as-is'
                   } : null);
                   setPollingActive(false);
+                  
+                  // Speak resolved answer
                   playAudioResponse(detail.reviewer_response || 'Approved as-is');
                 }
               }
@@ -159,7 +168,11 @@ export default function App() {
       recognitionRef.current.stop();
     } else {
       setTranscript('');
-      recognitionRef.current.start();
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.error('Failed to start speech recognition:', e);
+      }
     }
   };
 
@@ -206,6 +219,19 @@ export default function App() {
         const audioBlob = await res.blob();
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
+        audioRef.current = audio;
+        
+        // Auto-restart listening after the response ends, IF user is in Voice mode
+        audio.onended = () => {
+          if (!textMode && speechSupported) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.log('Auto-listening restart skipped (already active/unsupported):', e);
+            }
+          }
+        };
+
         audio.play();
       }
     } catch (err) {
@@ -237,114 +263,126 @@ export default function App() {
     }
   };
 
-  // Helper to color code confidence
-  const getConfidenceClass = (conf: number) => {
-    if (conf >= 0.6) return 'high';
-    if (conf >= 0.45) return 'med';
-    return 'low';
-  };
-
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
       {/* ── HEADER ──────────────────────────────────────────────────────── */}
-      <header className="app-header">
-        <div className="brand-section">
-          <Shield style={{ width: '32px', height: '32px', color: '#eab308' }} />
+      <header className="bg-slate-900 text-white shadow-lg px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Shield className="w-8 h-8 text-yellow-500" />
           <div>
-            <h1 className="brand-title">SahayakAI</h1>
-            <p className="brand-subtitle">Voice Banking Copilot & Compliance Layer</p>
+            <h1 className="text-xl font-bold tracking-wide">SahayakAI</h1>
+            <p className="text-xs text-slate-400">Voice Banking Copilot & Compliance Layer</p>
           </div>
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="view-switcher">
+        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 w-full md:w-auto justify-center">
           <button 
             onClick={() => setActiveView('rm')}
-            className={`view-tab ${activeView === 'rm' ? 'active' : ''}`}
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all w-1/2 md:w-auto ${
+              activeView === 'rm' 
+                ? 'bg-slate-700 text-white shadow' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <User style={{ width: '16px', height: '16px' }} />
+            <User className="w-4 h-4" />
             RM Workspace
           </button>
           <button 
             onClick={() => setActiveView('compliance')}
-            className={`view-tab ${activeView === 'compliance' ? 'active' : ''}`}
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all w-1/2 md:w-auto ${
+              activeView === 'compliance' 
+                ? 'bg-slate-700 text-white shadow' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <Shield style={{ width: '16px', height: '16px' }} />
+            <Shield className="w-4 h-4" />
             Compliance Queue
             {escalations.length > 0 && (
-              <span className="badge-count">
+              <span className="bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full font-bold ml-1 animate-pulse">
                 {escalations.length}
               </span>
             )}
           </button>
         </div>
 
-        <div style={{ fontSize: '14px', color: '#94a3b8' }}>
-          RM ID: <span style={{ fontFamily: 'Fira Code, monospace', color: '#f1f5f9' }}>{rmId}</span>
+        <div className="text-sm text-slate-400">
+          RM ID: <span className="text-slate-200 font-mono">{rmId}</span>
         </div>
       </header>
 
       {/* ── WORKSPACE CONTENT ───────────────────────────────────────────── */}
-      <main className="workspace-container">
+      <main className="flex-grow p-4 md:p-8 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* ==================== RELATIONSHIP MANAGER VIEW ==================== */}
         {activeView === 'rm' && (
           <>
             {/* Left Panel: Query Input */}
-            <div className="card" style={{ gridColumn: 'span 5', minHeight: '400px' }}>
+            <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[420px] transition-all duration-300">
               <div>
-                <h2 className="card-title">
-                  <User style={{ color: '#64748b', width: '20px', height: '20px' }} />
+                <h2 className="text-lg font-bold mb-2 flex items-center gap-2 text-slate-900">
+                  <User className="text-slate-500 w-5 h-5" />
                   Ask Copilot
                 </h2>
-                <p className="card-desc">
-                  Speak or type queries about banking products, interest rates, customer policy, or compliance guidelines.
+                <p className="text-sm text-slate-500 mb-6">
+                  Speak or type queries about banking products, rates, or policies.
                 </p>
 
                 {/* Speech Toggle Button & Area */}
                 {speechSupported && (
-                  <div className="mode-banner">
-                    <span className="banner-label">Voice Input Mode</span>
+                  <div className="flex items-center justify-between mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <span className="text-sm font-medium text-slate-700">Voice Assistant Mode</span>
                     <button 
-                      onClick={() => setTextMode(!textMode)}
-                      className={`banner-btn ${!textMode ? 'active' : ''}`}
+                      onClick={() => {
+                        setTextMode(!textMode);
+                        if (isRecording) recognitionRef.current.stop();
+                      }}
+                      className={`text-xs px-3 py-1 rounded font-bold border transition-all duration-200 ${
+                        !textMode 
+                          ? 'bg-slate-900 text-white border-slate-900' 
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
                     >
-                      {!textMode ? 'Voice Mode Active' : 'Switch to Voice'}
+                      {!textMode ? 'Voice Mode Active' : 'Enable Voice'}
                     </button>
                   </div>
                 )}
 
                 {/* Input Fields */}
                 {textMode ? (
-                  <div className="input-section" style={{ marginTop: '16px' }}>
+                  <div className="flex flex-col gap-2">
                     <textarea 
                       value={transcript}
                       onChange={(e) => setTranscript(e.target.value)}
-                      placeholder="Type your question here (e.g. What is the interest rate for a 1-year FD?)..."
-                      className="text-area-input"
+                      placeholder="Type your question here (e.g. What is the interest rate on a 1-year fixed deposit?)..."
+                      className="w-full h-32 p-3 bg-slate-50 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 transition-shadow"
                     />
                     <button
                       onClick={() => handleQuerySubmit(transcript)}
                       disabled={isProcessing || !transcript.trim()}
-                      className="btn-primary"
+                      className="mt-2 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-lg transition disabled:opacity-50 cursor-pointer"
                     >
-                      {isProcessing ? <RefreshCw className="animate-spin" style={{ width: '16px', height: '16px' }} /> : <Send style={{ width: '16px', height: '16px' }} />}
+                      {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                       Submit Query
                     </button>
                   </div>
                 ) : (
-                  <div className="recording-wrapper">
+                  <div className="flex flex-col items-center justify-center py-6">
                     <button 
                       onClick={toggleRecording}
-                      className={`mic-button ${isRecording ? 'recording' : ''}`}
+                      className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer ${
+                        isRecording 
+                          ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-lg shadow-red-500/50' 
+                          : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700'
+                      }`}
                     >
-                      {isRecording ? <MicOff style={{ width: '40px', height: '40px' }} /> : <Mic style={{ width: '40px', height: '40px' }} />}
+                      {isRecording ? <MicOff className="w-10 h-10 animate-bounce" /> : <Mic className="w-10 h-10" />}
                     </button>
-                    <p className="rec-state-label">
-                      {isRecording ? 'Listening... Speak now.' : 'Click to start recording voice query'}
+                    <p className="text-xs text-slate-500 mt-4">
+                      {isRecording ? 'Listening... speak now.' : 'Click to start recording voice input'}
                     </p>
                     {transcript && (
-                      <div className="live-transcript">
+                      <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-700 text-center italic w-full">
                         "{transcript}"
                       </div>
                     )}
@@ -354,54 +392,60 @@ export default function App() {
 
               {/* Status Banner */}
               {isProcessing && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '16px', backgroundColor: '#f8fafc' }}>
-                  <RefreshCw className="animate-spin" style={{ width: '20px', height: '20px', color: '#475569' }} />
-                  <span style={{ fontSize: '14px', fontWeight: '500' }}>Invoking LangGraph copilot pipeline...</span>
+                <div className="flex items-center justify-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200 mt-4">
+                  <RefreshCw className="w-5 h-5 text-slate-600 animate-spin" />
+                  <span className="text-sm font-medium text-slate-700">Running guardrail check pipeline...</span>
                 </div>
               )}
             </div>
 
             {/* Right Panel: AI Results & Pipeline Output */}
-            <div style={{ gridColumn: 'span 7', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div className="lg:col-span-7 flex flex-col gap-6 w-full">
               
               {!queryResult && !isProcessing && (
-                <div className="card" style={{ minHeight: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                  <Sparkles style={{ width: '48px', height: '48px', color: '#cbd5e1', marginBottom: '16px' }} />
-                  <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '700' }}>No Query Submitted</h3>
-                  <p style={{ margin: '0', fontSize: '14px', color: '#64748b', maxWidth: '320px' }}>
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-center text-center min-h-[420px]">
+                  <Sparkles className="w-12 h-12 text-slate-300 mb-4" />
+                  <h3 className="text-lg font-bold text-slate-800">No Query Processed</h3>
+                  <p className="text-sm text-slate-500 max-w-sm mt-2">
                     Ask a question to see real-time guardrail checks, RAG content citations, and the Compliance Officer queue behavior.
                   </p>
                 </div>
               )}
 
               {queryResult && (
-                <div className="card" style={{ gap: '24px' }}>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-6">
                   {/* Pipeline Header Status Card */}
-                  <div className="pipeline-header">
-                    <div>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div className="flex items-center gap-3">
                       {queryResult.status === 'safe' && (
-                        <div className="status-pill safe">
-                          <CheckCircle style={{ width: '16px', height: '16px' }} />
+                        <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-200">
+                          <CheckCircle className="w-4 h-4" />
                           Safe Response Approved
                         </div>
                       )}
                       {queryResult.status === 'escalated' && (
-                        <div className="status-pill escalated">
-                          <AlertTriangle style={{ width: '16px', height: '16px' }} />
+                        <div className="flex items-center gap-2 bg-amber-50 text-amber-800 px-3 py-1.5 rounded-full text-xs font-bold border border-amber-200 animate-pulse">
+                          <AlertTriangle className="w-4 h-4" />
                           Escalated to Compliance Queue
                         </div>
                       )}
                       {queryResult.status === 'resolved' && (
-                        <div className="status-pill resolved">
-                          <Check style={{ width: '16px', height: '16px' }} />
+                        <div className="flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-1.5 rounded-full text-xs font-bold border border-blue-200 font-medium">
+                          <Check className="w-4 h-4" />
                           Resolved by Compliance
                         </div>
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>CONFIDENCE:</span>
-                      <span className={`confidence-badge ${getConfidenceClass(queryResult.confidence)}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 font-bold uppercase">Confidence:</span>
+                      <span className={`text-sm px-2.5 py-1 rounded-md font-mono font-bold ${
+                        queryResult.confidence >= 0.6 
+                          ? 'bg-emerald-100 text-emerald-800' 
+                          : queryResult.confidence >= 0.45 
+                          ? 'bg-amber-100 text-amber-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
                         {queryResult.confidence.toFixed(2)}
                       </span>
                     </div>
@@ -409,26 +453,26 @@ export default function App() {
 
                   {/* Main Content Area */}
                   <div>
-                    <h3 className="section-label">Final Answer</h3>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Final Answer</h3>
                     {queryResult.status === 'safe' || queryResult.status === 'resolved' ? (
-                      <div className="final-answer-box">
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-900 leading-relaxed font-medium">
                         {queryResult.final_answer}
                       </div>
                     ) : (
-                      <div className="escalation-card">
-                        <p className="escalation-warning-title">
-                          <AlertTriangle style={{ width: '20px', height: '20px', color: '#d97706' }} />
+                      <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-5 text-slate-800 flex flex-col gap-3">
+                        <p className="font-semibold text-amber-900 flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-amber-600" />
                           HUMAN REVIEW REQUIRED
                         </p>
-                        <p style={{ margin: '0', fontSize: '14px', color: '#78350f' }}>
+                        <p className="text-sm text-amber-800">
                           This query triggered our compliance filters. The Relationship Manager is not authorized to deliver this answer directly to the customer.
                         </p>
-                        <div className="escalation-reason-box">
+                        <div className="text-xs font-bold bg-amber-100 text-amber-800 p-2.5 rounded border border-amber-200 font-mono">
                           REASON: {queryResult.escalation_reason}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
-                          <RefreshCw className="animate-spin" style={{ width: '14px', height: '14px' }} />
-                          Waiting for Compliance Officer resolution... (Auto-polling)
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
+                          <RefreshCw className="w-4 h-4 animate-spin text-slate-600" />
+                          Waiting for Compliance resolution... (Auto-polling)
                         </div>
                       </div>
                     )}
@@ -437,11 +481,11 @@ export default function App() {
                   {/* Citations */}
                   {queryResult.citations.length > 0 && (
                     <div>
-                      <h4 className="section-label">Trusted Citations</h4>
-                      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Citations</h4>
+                      <div className="flex flex-wrap gap-2">
                         {queryResult.citations.map((cite, index) => (
-                          <span key={index} className="citation-chip">
-                            <FileText style={{ width: '14px', height: '14px', color: '#64748b' }} />
+                          <span key={index} className="flex items-center gap-1.5 bg-slate-100 text-slate-800 text-xs px-2.5 py-1 rounded-md border border-slate-200 font-medium">
+                            <FileText className="w-3.5 h-3.5 text-slate-500" />
                             {cite}
                           </span>
                         ))}
@@ -451,50 +495,66 @@ export default function App() {
 
                   {/* TTS Speaker Output */}
                   {(queryResult.status === 'safe' || queryResult.status === 'resolved') && (
-                    <div className="tts-bar">
-                      <span style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Volume2 style={{ width: '16px', height: '16px' }} />
-                        OpenAI TTS audio auto-played
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
+                      <span className="text-xs text-slate-500 flex items-center gap-1.5 font-medium">
+                        <Volume2 className="w-4 h-4 text-slate-600" />
+                        Audio auto-play enabled
                       </span>
                       <button 
                         onClick={() => playAudioResponse(queryResult.final_answer)}
-                        className="btn-secondary"
+                        className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-slate-900 font-bold border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 px-3 py-1.5 rounded transition cursor-pointer"
                       >
-                        <Play style={{ width: '14px', height: '14px', fill: '#334155' }} />
+                        <Play className="w-3.5 h-3.5 fill-slate-700" />
                         Replay Audio
                       </button>
                     </div>
                   )}
 
                   {/* Guardrail Flag Audit */}
-                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
-                    <h4 className="section-label" style={{ marginBottom: '12px' }}>Guardrail Logs</h4>
-                    <div className="guardrails-grid">
+                  <div className="border-t border-slate-100 pt-4">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Guardrail Logs</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                       
-                      <div className={`guardrail-card ${queryResult.guardrail_flags.keyword_blocked ? 'flagged' : ''}`}>
-                        <span className="guardrail-card-title">1. Keyword Block</span>
-                        <span className="guardrail-card-status">
+                      <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
+                        queryResult.guardrail_flags.keyword_blocked 
+                          ? 'bg-red-50 border-red-200 text-red-800' 
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}>
+                        <span className="font-bold">1. Keyword Block</span>
+                        <span className="mt-1 font-mono text-[10px]">
                           {queryResult.guardrail_flags.keyword_blocked ? 'TRIGGERED' : 'PASS'}
                         </span>
                       </div>
 
-                      <div className={`guardrail-card ${queryResult.guardrail_flags.pii_detected ? 'flagged' : ''}`}>
-                        <span className="guardrail-card-title">2. PII Redaction</span>
-                        <span className="guardrail-card-status">
+                      <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
+                        queryResult.guardrail_flags.pii_detected 
+                          ? 'bg-yellow-50 border-yellow-200 text-yellow-800' 
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}>
+                        <span className="font-bold">2. PII Redaction</span>
+                        <span className="mt-1 font-mono text-[10px]">
                           {queryResult.guardrail_flags.pii_detected ? 'REDACTED' : 'PASS'}
                         </span>
                       </div>
 
-                      <div className={`guardrail-card ${queryResult.guardrail_flags.fact_mismatch ? 'flagged' : ''}`}>
-                        <span className="guardrail-card-title">3. Fact Check</span>
-                        <span className="guardrail-card-status">
+                      <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
+                        queryResult.guardrail_flags.fact_mismatch 
+                          ? 'bg-red-50 border-red-200 text-red-800' 
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}>
+                        <span className="font-bold">3. Fact Check</span>
+                        <span className="mt-1 font-mono text-[10px]">
                           {queryResult.guardrail_flags.fact_mismatch ? 'MISMATCH' : 'PASS'}
                         </span>
                       </div>
 
-                      <div className={`guardrail-card ${queryResult.guardrail_flags.policy_violation ? 'flagged' : ''}`}>
-                        <span className="guardrail-card-title">4. Policy Advice</span>
-                        <span className="guardrail-card-status">
+                      <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${
+                        queryResult.guardrail_flags.policy_violation 
+                          ? 'bg-red-50 border-red-200 text-red-800' 
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}>
+                        <span className="font-bold">4. Policy Advice</span>
+                        <span className="mt-1 font-mono text-[10px]">
                           {queryResult.guardrail_flags.policy_violation ? 'UNSAFE ADVICE' : 'PASS'}
                         </span>
                       </div>
@@ -511,131 +571,135 @@ export default function App() {
 
         {/* ==================== COMPLIANCE OFFICER QUEUE VIEW ==================== */}
         {activeView === 'compliance' && (
-          <div style={{ gridColumn: 'span 12', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div className="lg:col-span-12 flex flex-col gap-6 w-full">
             
             {/* Header section with count */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="card-title" style={{ fontSize: '20px' }}>
-                  <Shield style={{ width: '24px', height: '24px', color: '#475569' }} />
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-slate-500" />
                   Compliance Verification Queue
                 </h2>
-                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
+                <p className="text-sm text-slate-500 mt-1">
                   Review and resolve inquiries from RMs that triggered advice policies, fact mismatch rules, or keyword blocks.
                 </p>
               </div>
               <button 
                 onClick={fetchEscalations}
-                className="btn-secondary"
-                style={{ padding: '8px 16px' }}
+                className="flex items-center gap-2 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 py-2 px-4 rounded-lg border border-slate-300 transition-all cursor-pointer w-full sm:w-auto justify-center"
               >
-                <RefreshCw style={{ width: '14px', height: '14px' }} />
+                <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
                 Refresh Queue
               </button>
             </div>
 
             {/* Queue List */}
             {escalations.length === 0 ? (
-              <div className="card" style={{ padding: '48px', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                <CheckCircle style={{ width: '48px', height: '48px', color: '#10b981', marginBottom: '16px' }} />
-                <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '700' }}>Verification Queue Clear</h3>
-                <p style={{ margin: '0', fontSize: '14px', color: '#64748b', maxWidth: '360px' }}>
+              <div className="bg-white p-12 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-center text-center">
+                <CheckCircle className="w-12 h-12 text-emerald-500 mb-4" />
+                <h3 className="text-lg font-bold text-slate-800">Verification Queue Clear</h3>
+                <p className="text-sm text-slate-500 max-w-sm mt-2">
                   All Relationship Manager queries are verified, clean, and complying with banking regulations.
                 </p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div className="flex flex-col gap-6">
                 {escalations.map((item) => (
-                  <div key={item.id} className="compliance-queue-card">
+                  <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
                     
                     {/* Item header with reason */}
-                    <div className="compliance-queue-header">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AlertTriangle style={{ width: '16px', height: '16px', color: '#f59e0b' }} />
-                        <span style={{ fontSize: '12px', fontFamily: 'Fira Code, monospace', color: '#cbd5e1' }}>Escalation ID: {item.id.slice(0, 8)}</span>
+                    <div className="bg-slate-900 text-white px-6 py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                        <span className="text-xs font-mono text-slate-400">Escalation ID: {item.id.slice(0, 8)}</span>
                       </div>
-                      <span className="badge-count" style={{ animation: 'none' }}>
+                      <span className="bg-yellow-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full font-mono">
                         {item.reason}
                       </span>
                     </div>
 
                     {/* Details body */}
-                    <div className="compliance-queue-body">
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-100">
                       
                       {/* Left: Input details */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div className="flex flex-col gap-4">
                         <div>
-                          <h4 className="section-label">RM Inquiry</h4>
-                          <div style={{ padding: '12px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', fontWeight: '500' }}>
+                          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">RM Inquiry</h4>
+                          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm font-medium text-slate-900">
                             "{item.transcript}"
                           </div>
                         </div>
                         
                         <div>
-                          <h4 className="section-label">Guardrail Violations</h4>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Guardrail Violations</h4>
+                          <div className="flex flex-wrap gap-2 text-xs">
                             {item.guardrail_flags.keyword_blocked && (
-                              <span className="status-pill escalated">Keyword Blocked</span>
+                              <span className="bg-red-50 text-red-800 px-2 py-1 rounded border border-red-200 font-medium">
+                                Keyword Blocked
+                              </span>
                             )}
                             {item.guardrail_flags.pii_detected && (
-                              <span className="status-pill escalated">PII Detected</span>
+                              <span className="bg-yellow-50 text-yellow-800 px-2 py-1 rounded border border-yellow-200 font-medium">
+                                PII Detected
+                              </span>
                             )}
                             {item.guardrail_flags.fact_mismatch && (
-                              <span className="status-pill escalated">
+                              <span className="bg-red-50 text-red-800 px-2 py-1 rounded border border-red-200 font-medium">
                                 Fact Mismatch: {item.guardrail_flags.fact_mismatch_detail || 'Unverified numbers'}
                               </span>
                             )}
                             {item.guardrail_flags.policy_violation && (
-                              <span className="status-pill escalated">Investment Advice Warning</span>
+                              <span className="bg-red-50 text-red-800 px-2 py-1 rounded border border-red-200 font-medium">
+                                Investment Advice Warning
+                              </span>
                             )}
                           </div>
                         </div>
                       </div>
 
                       {/* Right: AI draft response and modification */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <h4 className="section-label">Verify or Edit AI Answer</h4>
+                      <div className="flex flex-col gap-3">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Verify or Edit AI Answer</h4>
                         <textarea
                           value={complianceEdits[item.id] || ''}
                           onChange={(e) => setComplianceEdits({ ...complianceEdits, [item.id]: e.target.value })}
-                          className="text-area-input"
-                          style={{ height: '140px', fontFamily: 'Fira Code, monospace' }}
+                          className="w-full h-32 p-3 bg-slate-50 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono text-slate-800"
                         />
                       </div>
 
                     </div>
 
                     {/* Actions footer */}
-                    <div className="compliance-queue-footer">
-                      <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
-                        RM: <span style={{ fontFamily: 'Fira Code, monospace' }}>{item.rm_id}</span> | Action required
+                    <div className="bg-slate-50 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <span className="text-xs text-slate-500 font-medium">
+                        RM: <span className="font-mono">{item.rm_id}</span> | Action required
                       </span>
                       
-                      <div className="btn-group">
+                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                         <button
                           onClick={() => handleResolve(item.id, 'rejected')}
                           disabled={resolvingId !== null}
-                          className="btn-secondary btn-reject"
+                          className="flex items-center justify-center gap-1.5 bg-white hover:bg-red-50 text-red-700 hover:text-red-800 text-xs font-bold border border-red-300 px-4 py-2 rounded-lg transition disabled:opacity-50 cursor-pointer w-full sm:w-auto"
                         >
-                          <XCircle style={{ width: '16px', height: '16px' }} />
+                          <XCircle className="w-4 h-4" />
                           Reject
                         </button>
                         
                         <button
                           onClick={() => handleResolve(item.id, 'edited')}
                           disabled={resolvingId !== null}
-                          className="btn-primary btn-approve-edit"
+                          className="flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-850 text-white text-xs font-bold px-4 py-2 rounded-lg transition disabled:opacity-50 cursor-pointer w-full sm:w-auto"
                         >
-                          <Edit2 style={{ width: '16px', height: '16px', color: '#facc15' }} />
+                          <Edit2 className="w-4 h-4 text-yellow-500" />
                           Approve with Edits
                         </button>
 
                         <button
                           onClick={() => handleResolve(item.id, 'approved')}
                           disabled={resolvingId !== null}
-                          className="btn-primary btn-approve"
+                          className="flex items-center justify-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded-lg transition disabled:opacity-50 cursor-pointer w-full sm:w-auto"
                         >
-                          <Check style={{ width: '16px', height: '16px' }} />
+                          <Check className="w-4 h-4" />
                           Approve As-Is
                         </button>
                       </div>
@@ -652,7 +716,7 @@ export default function App() {
       </main>
       
       {/* ── FOOTER ──────────────────────────────────────────────────────── */}
-      <footer className="app-footer">
+      <footer className="bg-slate-900 text-slate-500 py-6 border-t border-slate-800 px-6 text-center text-xs">
         <p>© 2026 SahayakAI. Trusted Banking Relationship Officer Platform. Built for Security & Regulatory Compliance.</p>
       </footer>
     </div>
