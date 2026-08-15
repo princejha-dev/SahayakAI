@@ -150,11 +150,15 @@ export default function App() {
         }));
         setEscalations(flattened);
         
-        const edits: any = {};
-        flattened.forEach((e: EscalationItem) => {
-          edits[e.id] = e.draft_answer;
+        setComplianceEdits(prev => {
+          const edits = { ...prev };
+          flattened.forEach((e: EscalationItem) => {
+            if (edits[e.id] === undefined) {
+              edits[e.id] = e.draft_answer;
+            }
+          });
+          return edits;
         });
-        setComplianceEdits(edits);
       }
     } catch (err) {
       console.error('Failed to fetch escalations:', err);
