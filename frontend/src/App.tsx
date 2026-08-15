@@ -161,6 +161,14 @@ export default function App() {
     }
   };
 
+  // Load escalations on mount and periodically to keep the header badge updated
+  useEffect(() => {
+    fetchEscalations();
+    const interval = setInterval(fetchEscalations, 10000); // refresh badge every 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Force reload escalations when switching view to Compliance
   useEffect(() => {
     if (activeView === 'compliance') {
       fetchEscalations();
@@ -202,6 +210,7 @@ export default function App() {
           playAudioResponse(data.final_answer);
         } else if (data.status === 'escalated') {
           setPollingActive(true);
+          fetchEscalations(); // Immediately update the Compliance tab badge count
         }
       } else {
         console.error('Query request failed:', await res.text());
