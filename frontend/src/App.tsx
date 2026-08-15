@@ -104,7 +104,9 @@ export default function App() {
                 const logs = await auditRes.json();
                 const resolutionLog = logs.find((l: any) => l.step === 'resolution');
                 if (resolutionLog) {
-                  const detail = JSON.parse(resolutionLog.detail);
+                  const detail = typeof resolutionLog.detail === 'string' 
+                    ? JSON.parse(resolutionLog.detail) 
+                    : resolutionLog.detail;
                   setQueryResult(prev => prev ? {
                     ...prev,
                     status: 'resolved',
