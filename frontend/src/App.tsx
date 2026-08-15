@@ -136,12 +136,12 @@ export default function App() {
           query_id: item.query_id,
           reason: item.reason,
           status: item.status,
-          rm_id: item.queries.rm_id,
-          transcript: item.queries.transcript,
-          draft_answer: item.queries.draft_answer,
-          guardrail_flags: typeof item.queries.guardrail_flags === 'string' 
-            ? JSON.parse(item.queries.guardrail_flags) 
-            : item.queries.guardrail_flags
+          rm_id: item.rm_id,
+          transcript: item.transcript,
+          draft_answer: item.draft_answer,
+          guardrail_flags: typeof item.guardrail_flags === 'string' 
+            ? JSON.parse(item.guardrail_flags) 
+            : item.guardrail_flags
         }));
         setEscalations(flattened);
         
