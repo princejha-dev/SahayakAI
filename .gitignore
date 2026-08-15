@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+myenv/
+backend/myenv/
+
+# Env files — NEVER commit these
+.env
+*.env
+
+# Node
+node_modules/
+dist/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+.agent/
+
+test_phase0.py
+design-system/
+supabase/
+plans/
+
