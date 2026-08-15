@@ -91,14 +91,15 @@ export default function App() {
   useEffect(() => {
     let intervalId: any;
     if (pollingActive && queryResult && queryResult.status === 'escalated') {
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
       intervalId = setInterval(async () => {
         try {
-          const res = await fetch(`${API_URL}/escalations`);
+          const res = await fetch(`${baseUrl}/escalations?_t=${Date.now()}`);
           if (res.ok) {
             const queue: EscalationItem[] = await res.json();
             const isPending = queue.some(item => item.query_id === queryResult.query_id);
             if (!isPending) {
-              const auditRes = await fetch(`${API_URL}/audit/${queryResult.query_id}`);
+              const auditRes = await fetch(`${baseUrl}/audit/${queryResult.query_id}?_t=${Date.now()}`);
               if (auditRes.ok) {
                 const logs = await auditRes.json();
                 const resolutionLog = logs.find((l: any) => l.step === 'resolution');
@@ -128,7 +129,9 @@ export default function App() {
   // Load Compliance Escalation Queue
   const fetchEscalations = async () => {
     try {
-      const res = await fetch(`${API_URL}/escalations`);
+      // Normalize URL to handle trailing slashes safely and add cache buster
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const res = await fetch(`${baseUrl}/escalations?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         const flattened = data.map((item: any) => ({
@@ -244,7 +247,8 @@ export default function App() {
     const reviewer_response = complianceEdits[id] || '';
     
     try {
-      const res = await fetch(`${API_URL}/escalations/${id}/resolve`, {
+      const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+      const res = await fetch(`${baseUrl}/escalations/${id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
